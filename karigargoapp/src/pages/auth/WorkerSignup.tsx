@@ -1,0 +1,300 @@
+import { useState, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { IoArrowBack, IoCamera, IoCheckmarkCircle, IoCloudUpload } from 'react-icons/io5'
+import { supabase } from '../../lib/supabase'
+import { SERVICE_CATEGORIES, PAKISTAN_CITIES } from '../../types'
+import toast from 'react-hot-toast'
+
+const STEPS = ['Personal Info', 'Skills & City', 'Documents', 'Bio']
+
+export default function WorkerSignup() {
+  const nav = useNavigate()
+  const [step, setStep] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [isSubmitted, setIsSubmitted] = useState(false)
+  const submitLockRef = useRef(false)
+
+  // Step 1 — personal info
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+
+  // Step 2 — skills & city
+  const [skills, setSkills] = useState<string[]>([])
+  const [city, setCity] = useState('')
+
+  // Step 3 — documents
+  const [cnic, setCnic] = useState('')
+  const [cnicFront, setCnicFront] = useState<File | null>(null)
+  const [cnicBack, setCnicBack] = useState<File | null>(null)
+  const [certificates, setCertificates] = useState<File[]>([])
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [photoPreview, setPhotoPreview] = useState('')
+
+  // Step 4 — bio
+  const [bio, setBio] = useState('')
+
+  const toggleSkill = (s: string) => {
+    setSkills(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])
+  }
+
+  const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (f) { setPhoto(f); setPhotoPreview(URL.createObjectURL(f)) }
+  }
+
+  const nextStep = () => {
+    if (step === 0 && (!name || !phone || !email || !password)) return toast.error('Fill all fields')
+    if (step === 1 && (skills.length === 0 || !city)) return toast.error('Select at least one skill and a city')
+    if (step === 2 && (!cnic || !cnicFront || !cnicBack)) return toast.error('CNIC info required')
+    setStep(s => Math.min(s + 1, 3))
+  }
+
+  const uploadFile = async (file: File, folder: string) => {
+    const path = `${folder}/${Date.now()}_${file.name}`
+    await supabase.storage.from('signup-docs').upload(path, file)
+    const { data } = supabase.storage.from('signup-docs').getPublicUrl(path)
+    return data.publicUrl
+  }
+
+  const handleSubmit = async () => {
+    if (submitLockRef.current) return
+    submitLockRef.current = true
+    setLoading(true)
+    try {
+      const { data: authData, error } = await supabase.auth.signUp({ email, password })
+      if (error) {
+        const msg = error.message?.toLowerCase() || ''
+        if (msg.includes('rate') || msg.includes('too many')) {
+          toast.error('Too many signup attempts. Please wait a few minutes and try again.')
+        } else {
+          toast.error(error.message)
+        }
+        if (msg.includes('email') || msg.includes('password') || msg.includes('limit') || msg.includes('already')) {
+          setStep(0)
+        }
+        return
+      }
+      const userId = authData.user?.id
+      if (!userId) throw new Error('Signup failed — could not get user ID')
+
+      let photoUrl = ''
+      if (photo) photoUrl = await uploadFile(photo, 'avatars')
+
+      let formatted = phone.trim()
+      if (formatted.startsWith('0')) formatted = '+92' + formatted.slice(1)
+
+      const { error: usersErr } = await supabase.rpc('handle_signup_user', {
+        p_id: userId,
+        p_name: name,
+        p_email: email,
+        p_phone: formatted,
+        p_role: 'worker',
+        p_city: city,
+        p_profile_photo_url: photoUrl || null,
+        p_verified: false,
+      })
+      if (usersErr) throw usersErr
+
+      const cnicFrontUrl = await uploadFile(cnicFront!, 'cnic')
+      const cnicBackUrl = await uploadFile(cnicBack!, 'cnic')
+      const certUrls: string[] = []
+      for (const cert of certificates) {
+        certUrls.push(await uploadFile(cert, 'certificates'))
+      }
+
+      const { error: profileErr } = await supabase.rpc('handle_signup_worker_profile', {
+        p_user_id: userId,
+        p_skills: skills,
+        p_bio: bio || null,
+        p_cnic: cnic,
+        p_cnic_front_url: cnicFrontUrl,
+        p_cnic_back_url: cnicBackUrl,
+        p_certificate_urls: certUrls.length > 0 ? certUrls : null,
+      })
+      if (profileErr) throw profileErr
+
+      setIsSubmitted(true)
+    } catch (err: any) {
+      toast.error(err.message || 'Signup failed')
+      const msg = err.message?.toLowerCase() || ''
+      if (msg.includes('email') || msg.includes('password') || msg.includes('limit') || msg.includes('already')) {
+        setStep(0)
+      }
+    } finally {
+      setLoading(false)
+      submitLockRef.current = false
+    }
+  }
+
+  if (isSubmitted) {
+    return (
+      <div className="min-h-screen bg-surface flex flex-col items-center justify-center px-6 text-center animate-fade-in">
+        <div className="w-16 h-16 bg-primary/10 text-primary rounded-full flex items-center justify-center mb-4">
+          <IoArrowBack className="hidden" />
+          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+        </div>
+        <h2 className="text-2xl font-bold text-text-primary mb-2">Check your email</h2>
+        <p className="text-text-secondary text-sm mb-8">
+          We've sent a verification link to<br/> <span className="font-semibold text-text-primary">{email}</span>. 
+          <br/><br/>
+          Click the link in the email to activate your account. You will be logged in automatically!
+        </p>
+        <button onClick={() => nav('/login')} className="text-sm font-medium text-primary">
+          Back to Login
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-white flex flex-col">
+      <div className="top-bar">
+        <div className="flex items-center gap-3 mb-4">
+          <button onClick={() => step > 0 ? setStep(s => s - 1) : nav('/login')}>
+            <IoArrowBack size={22} className="text-white" />
+          </button>
+          <h1 className="text-lg font-semibold text-white">Worker Registration</h1>
+        </div>
+        {/* Progress */}
+        <div className="flex gap-2">
+          {STEPS.map((s, i) => (
+            <div key={s} className="flex-1">
+              <div className={`h-1.5 rounded-full transition-all ${i <= step ? 'bg-white' : 'bg-white/20'}`} />
+              <p className={`text-[10px] mt-1 ${i <= step ? 'text-white' : 'text-white/40'}`}>{s}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 px-6 py-6 overflow-y-auto">
+        {/* Step 0 — Personal */}
+        {step === 0 && (
+          <div className="space-y-4 animate-fade-in">
+            <div className="flex justify-center mb-2">
+              <label className="cursor-pointer">
+                <div className="w-24 h-24 rounded-full bg-surface border-2 border-dashed border-border flex items-center justify-center overflow-hidden">
+                  {photoPreview ? <img src={photoPreview} className="w-full h-full object-cover" /> : <IoCamera size={28} className="text-text-muted" />}
+                </div>
+                <input type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
+                <p className="text-xs text-primary text-center mt-2">Profile Photo</p>
+              </label>
+            </div>
+            <div>
+              <label className="text-sm text-text-secondary mb-1.5 block">Full Name *</label>
+              <input placeholder="Enter your name" value={name} onChange={e => setName(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-sm text-text-secondary mb-1.5 block">Phone Number *</label>
+              <input type="tel" placeholder="03001234567" value={phone} onChange={e => setPhone(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-sm text-text-secondary mb-1.5 block">Email *</label>
+              <input type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-sm text-text-secondary mb-1.5 block">Password *</label>
+              <input type="password" placeholder="Create a password" value={password} onChange={e => setPassword(e.target.value)} />
+            </div>
+          </div>
+        )}
+
+        {/* Step 1 — Skills & City */}
+        {step === 1 && (
+          <div className="space-y-5 animate-fade-in">
+            <div>
+              <label className="section-title">Select Your Skills *</label>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                {SERVICE_CATEGORIES.map(cat => (
+                  <button key={cat.name} onClick={() => toggleSkill(cat.name)}
+                    className={`flex items-center gap-2 px-3 py-3 rounded-xl border text-sm transition ${skills.includes(cat.name) ? 'border-primary bg-primary/5 text-primary font-medium' : 'border-border text-text-secondary'}`}>
+                    <span>{cat.icon}</span>
+                    <span>{cat.name}</span>
+                    {skills.includes(cat.name) && <IoCheckmarkCircle className="ml-auto text-primary" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-sm text-text-secondary mb-1.5 block">City *</label>
+              <select value={city} onChange={e => setCity(e.target.value)} className={!city ? 'text-text-muted' : ''}>
+                <option value="">Select city</option>
+                {PAKISTAN_CITIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2 — Documents */}
+        {step === 2 && (
+          <div className="space-y-5 animate-fade-in">
+            <div>
+              <label className="text-sm text-text-secondary mb-1.5 block">CNIC Number *</label>
+              <input placeholder="12345-1234567-1" value={cnic} onChange={e => setCnic(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="cursor-pointer">
+                <div className={`h-28 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 transition ${cnicFront ? 'border-primary bg-primary/5' : 'border-border'}`}>
+                  {cnicFront ? <IoCheckmarkCircle size={28} className="text-primary" /> : <IoCloudUpload size={28} className="text-text-muted" />}
+                  <span className="text-xs text-text-secondary">{cnicFront ? 'Front ✓' : 'CNIC Front *'}</span>
+                </div>
+                <input type="file" accept="image/*" className="hidden" onChange={e => setCnicFront(e.target.files?.[0] || null)} />
+              </label>
+              <label className="cursor-pointer">
+                <div className={`h-28 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 transition ${cnicBack ? 'border-primary bg-primary/5' : 'border-border'}`}>
+                  {cnicBack ? <IoCheckmarkCircle size={28} className="text-primary" /> : <IoCloudUpload size={28} className="text-text-muted" />}
+                  <span className="text-xs text-text-secondary">{cnicBack ? 'Back ✓' : 'CNIC Back *'}</span>
+                </div>
+                <input type="file" accept="image/*" className="hidden" onChange={e => setCnicBack(e.target.files?.[0] || null)} />
+              </label>
+            </div>
+            <div>
+              <label className="text-sm text-text-secondary mb-1.5 block">Certificates (optional)</label>
+              <label className="cursor-pointer">
+                <div className="h-20 rounded-xl border-2 border-dashed border-border flex items-center justify-center gap-2">
+                  <IoCloudUpload size={22} className="text-text-muted" />
+                  <span className="text-sm text-text-muted">{certificates.length > 0 ? `${certificates.length} file(s)` : 'Upload certificates'}</span>
+                </div>
+                <input type="file" accept="image/*,.pdf" multiple className="hidden" onChange={e => setCertificates(Array.from(e.target.files || []))} />
+              </label>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3 — Bio */}
+        {step === 3 && (
+          <div className="space-y-5 animate-fade-in">
+            <div>
+              <label className="text-sm text-text-secondary mb-1.5 block">Tell customers about yourself</label>
+              <textarea rows={5} placeholder="I have 5 years of experience in electrical work..." value={bio} onChange={e => setBio(e.target.value)} className="resize-none" />
+              <p className="text-xs text-text-muted mt-1">{bio.length}/500</p>
+            </div>
+            <div className="card p-4 space-y-2">
+              <p className="text-sm font-semibold text-text-primary">Registration Summary</p>
+              <p className="text-xs text-text-secondary">Name: {name}</p>
+              <p className="text-xs text-text-secondary">Phone: {phone}</p>
+              <p className="text-xs text-text-secondary">City: {city}</p>
+              <p className="text-xs text-text-secondary">Skills: {skills.join(', ')}</p>
+              <p className="text-xs text-text-secondary">CNIC: {cnic}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Navigation buttons */}
+        <div className="mt-8 space-y-3">
+          {step < 3 ? (
+            <button type="button" onClick={nextStep} className="btn-primary">Next</button>
+          ) : (
+            <button type="button" onClick={handleSubmit} disabled={loading} className="btn-primary">
+              {loading ? 'Creating Account...' : 'Submit Registration'}
+            </button>
+          )}
+          {step > 0 && (
+            <button type="button" onClick={() => setStep(s => s - 1)} className="btn-ghost">Back</button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

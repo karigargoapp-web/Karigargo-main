@@ -1,0 +1,148 @@
+import { useState, useEffect } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { IoArrowBack, IoShareSocial, IoHome, IoCash, IoCard, IoDownload } from 'react-icons/io5'
+import { supabase } from '../../lib/supabase'
+import type { Job } from '../../types'
+
+export default function CustomerReceipt() {
+  const nav = useNavigate()
+  const { jobId } = useParams()
+  const [job, setJob] = useState<Job | null>(null)
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'online'>('cash')
+
+  useEffect(() => {
+    if (!jobId) return
+    supabase.from('jobs').select('*').eq('id', jobId).single().then(({ data }) => {
+      if (data) setJob(data as Job)
+    })
+  }, [jobId])
+
+  if (!job) return <div className="min-h-screen flex items-center justify-center bg-[#f5f5f5] text-sm text-text-muted">Loading...</div>
+
+  const inspectionFee = job.inspection_charges || 0
+  const workCost = job.work_cost || 0
+  const isCaseA = workCost > 0
+  const total = inspectionFee + workCost
+  const platformFee = job.platform_fee || Math.round(total * 0.1)
+  const grandTotal = total + platformFee
+  const netToWorker = total - platformFee
+
+  const handleShare = () => {
+    if (navigator.share) {
+      navigator.share({ title: `KarigarGo Receipt — ${job.title}`, text: `Job: ${job.title}\nTotal: PKR ${grandTotal}` })
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-[#f5f5f5] flex flex-col">
+      {/* Green header */}
+      <div className="bg-primary px-6 pt-10 pb-5 rounded-b-3xl shadow-md">
+        <div className="flex items-center gap-4">
+          <button onClick={() => nav(-1)}><IoArrowBack size={24} className="text-white" /></button>
+          <h1 className="text-white text-xl font-medium">Payment</h1>
+        </div>
+      </div>
+
+      <div className="flex-1 px-5 py-5 space-y-4 overflow-y-auto pb-8">
+        {/* Payment Summary */}
+        <div className="bg-white rounded-2xl shadow-sm p-5">
+          <p className="text-base font-semibold text-text-primary mb-4">Payment Summary</p>
+
+          <div className="space-y-3 mb-4">
+            <div className="flex justify-between text-sm">
+              <span className="text-text-secondary">Worker</span>
+              <span className="text-text-primary font-medium">{job.worker_name}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-text-secondary">Service</span>
+              <span className="text-text-primary font-medium text-right max-w-[60%]">{job.title}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-text-secondary">Date</span>
+              <span className="text-text-primary">{new Date(job.completed_at || job.updated_at).toLocaleDateString()}</span>
+            </div>
+          </div>
+
+          <div className="border-t border-border pt-4 space-y-2.5">
+            <div className="flex justify-between text-sm">
+              <span className="text-text-secondary">Inspection Charges</span>
+              <span className="text-text-primary">PKR {inspectionFee.toLocaleString()}</span>
+            </div>
+            {isCaseA && (
+              <div className="flex justify-between text-sm">
+                <span className="text-text-secondary">Work Cost</span>
+                <span className="text-text-primary">PKR {workCost.toLocaleString()}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-sm">
+              <span className="text-text-secondary">Subtotal</span>
+              <span className="text-text-primary">PKR {total.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-text-secondary">Platform Fee (10%)</span>
+              <span className="text-text-primary">PKR {platformFee.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between text-sm font-semibold border-t border-border pt-3">
+              <span>Total Amount</span>
+              <span className="text-primary text-base">PKR {grandTotal.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-text-secondary">Amount to Worker</span>
+              <span className="text-text-primary">PKR {netToWorker.toLocaleString()}</span>
+            </div>
+          </div>
+
+          <div className="mt-3 flex justify-center">
+            <span className={`inline-block text-xs font-medium px-3 py-1 rounded-full ${isCaseA ? 'bg-primary/10 text-primary' : 'bg-yellow-100 text-yellow-700'}`}>
+              {isCaseA ? 'Case A — Full Payment' : 'Case B — Inspection Only'}
+            </span>
+          </div>
+        </div>
+
+        {/* Payment Method */}
+        <div className="bg-white rounded-2xl shadow-sm p-5">
+          <p className="text-base font-semibold text-text-primary mb-4">Payment Method</p>
+
+          <button
+            onClick={() => setPaymentMethod('cash')}
+            className={`w-full flex items-center gap-3 p-4 rounded-xl border mb-3 transition ${paymentMethod === 'cash' ? 'border-primary bg-green-50' : 'border-border'}`}
+          >
+            <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center shrink-0">
+              <IoCash size={20} className="text-primary" />
+            </div>
+            <div className="flex-1 text-left">
+              <p className="text-sm font-medium text-text-primary">Cash Payment</p>
+              <p className="text-xs text-text-muted">Pay directly to worker</p>
+            </div>
+            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${paymentMethod === 'cash' ? 'border-primary' : 'border-gray-300'}`}>
+              {paymentMethod === 'cash' && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
+            </div>
+          </button>
+
+          <div className="w-full flex items-center gap-3 p-4 rounded-xl border border-border opacity-50 cursor-not-allowed">
+            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+              <IoCard size={20} className="text-blue-500" />
+            </div>
+            <div className="flex-1 text-left">
+              <p className="text-sm font-medium text-text-primary">Online Payment</p>
+              <p className="text-xs text-text-muted">Coming soon</p>
+            </div>
+            <div className="w-5 h-5 rounded-full border-2 border-gray-300" />
+          </div>
+        </div>
+
+        {/* Actions */}
+        <button onClick={handleShare} className="w-full flex items-center justify-center gap-2 border border-border bg-white text-text-primary py-3.5 rounded-2xl text-sm font-medium shadow-sm">
+          <IoDownload size={16} /> Download Receipt
+        </button>
+        <button onClick={handleShare} className="w-full flex items-center justify-center gap-2 border border-border bg-white text-text-primary py-3.5 rounded-2xl text-sm font-medium shadow-sm">
+          <IoShareSocial size={16} /> Share Receipt
+        </button>
+        <button onClick={() => nav(`/customer/review/${jobId}`)} className="btn-primary">Rate Worker</button>
+        <button onClick={() => nav('/customer/home')} className="flex items-center justify-center gap-2 w-full border border-border bg-white text-text-secondary py-3.5 rounded-2xl text-sm font-medium shadow-sm">
+          <IoHome size={16} /> Back to Home
+        </button>
+      </div>
+    </div>
+  )
+}

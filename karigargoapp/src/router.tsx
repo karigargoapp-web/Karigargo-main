@@ -1,0 +1,126 @@
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom'
+import { AuthProvider, useAuth } from './hooks/useAuth'
+
+// Auth
+import Login from './pages/auth/Login'
+import WorkerLogin from './pages/auth/WorkerLogin'
+import CustomerSignup from './pages/auth/CustomerSignup'
+import WorkerSignup from './pages/auth/WorkerSignup'
+
+// Customer
+import CustomerHome from './pages/customer/Home'
+import PostJob from './pages/customer/PostJob'
+import CustomerMyJobs from './pages/customer/MyJobs'
+import CustomerJobDetail from './pages/customer/JobDetail'
+import CustomerActiveJob from './pages/customer/ActiveJob'
+import CustomerReceipt from './pages/customer/Receipt'
+import ReviewWorker from './pages/customer/ReviewWorker'
+import ViewWorkerProfile from './pages/customer/WorkerProfile'
+import CustomerProfile from './pages/customer/Profile'
+import CustomerMessages from './pages/customer/Messages'
+import TrackingScreen from './pages/customer/TrackingScreen'
+
+// Shared
+import ChatPage from './pages/ChatPage'
+
+// Worker
+import WorkerDashboard from './pages/worker/Dashboard'
+import JobBid from './pages/worker/JobBid'
+import WorkerActiveJob from './pages/worker/ActiveJob'
+import WorkerMyBids from './pages/worker/MyBids'
+import WorkerEarnings from './pages/worker/Earnings'
+import WorkerReviews from './pages/worker/ReviewsReceived'
+import ReviewCustomer from './pages/worker/ReviewCustomer'
+import WorkerProfile from './pages/worker/Profile'
+
+// Admin
+import AdminDashboard from './pages/admin/Dashboard'
+import AdminUsers from './pages/admin/Users'
+import AdminJobs from './pages/admin/Jobs'
+import AdminRevenue from './pages/admin/Revenue'
+import AdminReports from './pages/admin/Reports'
+
+function ProtectedRoute({ allowedRoles }: { allowedRoles?: string[] }) {
+  const { user, loading } = useAuth()
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-surface">Loading...</div>
+  if (!user) return <Navigate to="/login" replace />
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    // If logged in but wrong role, send them to their actual home
+    if (user.role === 'customer') return <Navigate to="/customer/home" replace />
+    if (user.role === 'worker') return <Navigate to="/worker/dashboard" replace />
+    if (user.role === 'admin') return <Navigate to="/admin" replace />
+    return <Navigate to="/login" replace />
+  }
+  return <Outlet />
+}
+
+function AuthRoute() {
+  const { user, loading } = useAuth()
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-surface">Loading...</div>
+  if (user) {
+    if (user.role === 'customer') return <Navigate to="/customer/home" replace />
+    if (user.role === 'worker') return <Navigate to="/worker/dashboard" replace />
+    if (user.role === 'admin') return <Navigate to="/admin" replace />
+  }
+  return <Outlet />
+}
+
+export function AppRouter() {
+  return (
+    <AuthProvider>
+      <Routes>
+        {/* Public / Auth routes */}
+        <Route element={<AuthRoute />}>
+          <Route path="/login" element={<Login />} />
+          <Route path="/login/worker" element={<WorkerLogin />} />
+          <Route path="/signup/customer" element={<CustomerSignup />} />
+          <Route path="/signup/worker" element={<WorkerSignup />} />
+        </Route>
+
+        {/* Customer routes */}
+        <Route element={<ProtectedRoute allowedRoles={['customer']} />}>
+          <Route path="/customer/home" element={<CustomerHome />} />
+          <Route path="/customer/post-job" element={<PostJob />} />
+          <Route path="/customer/my-jobs" element={<CustomerMyJobs />} />
+          <Route path="/customer/job/:jobId" element={<CustomerJobDetail />} />
+          <Route path="/customer/active-job/:jobId" element={<CustomerActiveJob />} />
+          <Route path="/customer/receipt/:jobId" element={<CustomerReceipt />} />
+          <Route path="/customer/review/:jobId" element={<ReviewWorker />} />
+          <Route path="/customer/worker/:workerId" element={<ViewWorkerProfile />} />
+          <Route path="/customer/messages" element={<CustomerMessages />} />
+          <Route path="/customer/tracking/:jobId" element={<TrackingScreen />} />
+          <Route path="/customer/profile" element={<CustomerProfile />} />
+        </Route>
+
+        {/* Shared chat route — accessible to any authenticated user */}
+        <Route element={<ProtectedRoute />}>
+          <Route path="/chat/:jobId" element={<ChatPage />} />
+        </Route>
+
+        {/* Worker routes */}
+        <Route element={<ProtectedRoute allowedRoles={['worker']} />}>
+          <Route path="/worker/dashboard" element={<WorkerDashboard />} />
+          <Route path="/worker/job/:jobId" element={<JobBid />} />
+          <Route path="/worker/active-job/:jobId" element={<WorkerActiveJob />} />
+          <Route path="/worker/my-bids" element={<WorkerMyBids />} />
+          <Route path="/worker/earnings" element={<WorkerEarnings />} />
+          <Route path="/worker/reviews" element={<WorkerReviews />} />
+          <Route path="/worker/review-customer/:jobId" element={<ReviewCustomer />} />
+          <Route path="/worker/profile" element={<WorkerProfile />} />
+        </Route>
+
+        {/* Admin routes */}
+        <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
+          <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/admin/users" element={<AdminUsers />} />
+          <Route path="/admin/jobs" element={<AdminJobs />} />
+          <Route path="/admin/revenue" element={<AdminRevenue />} />
+          <Route path="/admin/reports" element={<AdminReports />} />
+        </Route>
+
+        {/* Default redirect */}
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    </AuthProvider>
+  )
+}
